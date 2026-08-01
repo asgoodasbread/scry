@@ -1,5 +1,3 @@
-use std::fmt::format;
-
 use clap::Parser;
 use xcap::Monitor;
 
