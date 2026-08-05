@@ -4,20 +4,20 @@ Capture a screenshot and ask an AI about it.
 
 `scry` grabs a monitor, encodes it as a PNG in memory, sends it to a vision-capable model, and prints the answer to stdout — nothing is written to disk. The default prompt asks for the answer only, with no reasoning or filler, so it composes well with pipes and scripts.
 
-The goal is to stay provider-agnostic: any model that accepts an image and returns text should be usable, whether that's a hosted API or something running locally.
+It is provider-agnostic: any model that accepts an image and returns text can be plugged in, whether that's a hosted API or something running locally.
 
 Runs on Linux and Windows.
 
 ## Supported providers
 
-| Provider | Models | Status |
-| --- | --- | --- |
-| Anthropic (Claude) | `claude-opus-5`, other vision models | **working** |
-| OpenAI (ChatGPT) | GPT vision models | planned |
-| Google (Gemini) | Gemini vision models | planned |
-| Local (Ollama, llama.cpp) | any vision model you host | planned |
+| Provider | Default model | Select with | Status |
+| --- | --- | --- | --- |
+| Google (Gemini) | `gemini-2.5-flash` | `--provider gemini` | **working** |
+| Anthropic (Claude) | `claude-opus-5` | `--provider anthropic` | **working** |
+| OpenAI (ChatGPT) | — | — | planned |
+| Local (Ollama, llama.cpp) | — | — | planned |
 
-Only the Anthropic backend is implemented today — `src/ai.rs` speaks the Messages API directly. The other rows are the intended direction, not shipped behaviour. Adding a provider means a request builder and a response parser for that API; everything upstream of it (capture, PNG encoding, prompt, output) is already provider-neutral.
+Each backend is one file under `src/providers/` — a request builder and a response parser — paired with a JSON template holding the model and request body. Everything upstream (capture, PNG encoding, prompt, output) is provider-neutral, so adding OpenAI or a local endpoint means adding one module and one template, then a variant to the `Provider` enum in `src/providers/mod.rs`.
 
 ## Prerequisites
 
@@ -90,23 +90,55 @@ Capture a screenshot and ask an AI about it
 Usage: scry [OPTIONS]
 
 Options:
-  -l, --list               List available monitors and exit
-  -m, --monitor <MONITOR>  Index of the monitor to capture (defaults to the first)
-  -h, --help               Print help
-  -V, --version            Print version
+  -l, --list                 List available monitors and exit
+  -m, --monitor <MONITOR>    Index of the monitor to capture (defaults to the first)
+  -p, --provider <PROVIDER>  AI provider to ask (defaults to the one set in the config file) [possible values: anthropic, gemini]
+  -h, --help                 Print help
+  -V, --version              Print version
 ```
 
 ```sh
-scry              # capture the first monitor and ask about it
-scry --list       # see which monitors are available, with index and resolution
-scry -m 1         # capture the second monitor
+scry                        # capture the first monitor, ask the default provider
+scry --provider gemini      # ask Gemini for this run
+scry --list                 # see available monitors, with index and resolution
+scry -m 1 -p gemini         # capture the second monitor, ask Gemini
 ```
 
-A `--provider` flag for choosing between backends is planned, alongside the providers above.
+`--provider` overrides the default for a single run. To make a provider the permanent default, set `provider` in the config file (below).
 
 ## Configuration
 
-On first run, `scry` prompts for an API key on stdin and saves it. Later runs read it back silently.
+Keys are resolved in this order, first hit wins:
+
+1. **Environment variable** — `GEMINI_API_KEY` or `ANTHROPIC_API_KEY`
+2. **Config file** — the matching entry under `[keys]`
+3. **Prompt** — asks on stdin and saves the answer to the config file
+
+### Environment variable
+
+Nothing to add to `PATH` — an API key is an ordinary environment variable, not an executable.
+
+```sh
+export GEMINI_API_KEY="your-key-here"
+scry --provider gemini
+```
+
+That lasts for the current shell only. To make it permanent for your user, append the same `export` line to `~/.bashrc` and reload it:
+
+```sh
+echo 'export GEMINI_API_KEY="your-key-here"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+For one-off use without exporting anything, prefix the command:
+
+```sh
+GEMINI_API_KEY="your-key-here" scry --provider gemini
+```
+
+An exported key is visible to every process you launch from that shell, and `~/.bashrc` is a plaintext file. If you'd rather not have it in your shell environment, skip this and let `scry` store it in the config file instead.
+
+### Config file
 
 | OS | Config file |
 | --- | --- |
@@ -114,16 +146,29 @@ On first run, `scry` prompts for an API key on stdin and saves it. Later runs re
 | Windows | `%APPDATA%\scry\config\default-config.toml` |
 
 ```toml
-api_key = "sk-ant-..."
+provider = "gemini"
+
+[keys]
+anthropic = "sk-ant-..."
+gemini = "AIza..."
 ```
 
-The config currently holds one key, used for Anthropic. Multi-provider support will extend this to a provider selection plus per-provider keys; the single-key file will keep working as the Anthropic default.
+`provider` sets the default backend when `--provider` isn't passed; omit it and Anthropic is used. Keys are stored per provider, so both can live side by side and you switch with the flag alone.
 
-The key is stored in plaintext TOML, so treat that file the way you'd treat any other credential on disk. Deleting it triggers the setup prompt again.
+Keys are stored in plaintext TOML, so treat that file the way you'd treat any other credential on disk. Clearing a key's entry triggers the setup prompt again on the next run. A config from an older version with a bare `api_key = "..."` is migrated to `keys.anthropic` automatically.
+
+### Putting `scry` itself on `PATH`
+
+That's a separate thing from the key. `cargo install --path .` drops the binary in `~/.cargo/bin`, which rustup normally adds to your `PATH` already. Check with `command -v scry`; if it comes back empty:
+
+```sh
+echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+```
 
 ## Notes
 
 - **Wayland**: depending on your compositor, capture goes through the wlr-screencopy protocol or the xdg-desktop-portal. On GNOME and KDE, expect a screen-sharing permission dialog the first time.
-- **Model and token limit** live in `src/payload_template.json`, which is the request body sent to the API. It's embedded at compile time via `include_str!`, so edits require a rebuild. This file is Anthropic-shaped today; per-provider templates are part of the multi-provider work.
-- **The prompt** is in `src/prompt.rs`. Change it there if you want something other than terse answer-only output.
+- **Model and token limit** live in the per-provider templates, `src/providers/gemini.json` and `src/providers/anthropic.json`. Each is the request body for that API, with the model at the top. Gemini takes its model in the URL, so `scry` lifts that field out of the template when building the request. Templates are embedded at compile time via `include_str!`, so edits require a rebuild.
+- **The prompt** is in `src/prompt.rs`, shared by every provider. Change it there if you want something other than terse answer-only output.
 - **Capture and output** (`src/capture.rs`, `src/output.rs`) have no provider-specific code — a new backend only has to build a request and parse a reply.

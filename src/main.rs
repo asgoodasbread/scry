@@ -1,10 +1,12 @@
 use clap::Parser;
 
-mod ai;
 mod capture;
 mod config;
 mod output;
 mod prompt;
+mod providers;
+
+use providers::Provider;
 
 #[derive(Parser, Debug)]
 #[command(version, about = "Capture a screenshot and ask an AI about it", long_about = None)]
@@ -16,6 +18,10 @@ struct Cli {
     /// Index of the monitor to capture (defaults to the first)
     #[arg(short, long)]
     monitor: Option<usize>,
+
+    /// AI provider to ask (defaults to the one set in the config file)
+    #[arg(short, long, value_enum)]
+    provider: Option<Provider>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -26,9 +32,12 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let cfg = config::load_or_init_config()?;
+    let mut cfg = config::load()?;
+    let provider = args.provider.unwrap_or(cfg.provider);
+    let api_key = config::api_key(&mut cfg, provider)?;
+
     let png = capture::capture(args.monitor)?;
-    let answer = ai::ask(&png, &cfg.api_key)?;
+    let answer = providers::ask(provider, &png, &api_key)?;
     output::render(&answer);
     Ok(())
 }

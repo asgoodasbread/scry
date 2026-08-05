@@ -1,0 +1,22 @@
+{
+  "model": "gemini-2.5-flash",
+  "contents": [
+    {
+      "role": "user",
+      "parts": [
+        {
+          "inline_data": {
+            "mime_type": "image/png",
+            "data": ""
+          }
+        },
+        {
+          "text": ""
+        }
+      ]
+    }
+  ],
+  "generationConfig": {
+    "maxOutputTokens": 16000
+  }
+}
