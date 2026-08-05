@@ -7,7 +7,7 @@ mod output;
 mod prompt;
 
 #[derive(Parser, Debug)]
-#[command(version, about = "Capture a screenshot and ask Claude about it", long_about = None)]
+#[command(version, about = "Capture a screenshot and ask an AI about it", long_about = None)]
 struct Cli {
     /// List available monitors and exit
     #[arg(short, long)]

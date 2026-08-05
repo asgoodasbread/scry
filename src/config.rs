@@ -15,7 +15,7 @@ pub fn load_or_init_config() -> anyhow::Result<AppConfig> {
 
     if cfg.api_key.is_empty() {
         println!("It looks like this is your first run, or your API key is missing.");
-        print!("Please enter your Claude API key: ");
+        print!("Please enter your API key: ");
         io::stdout().flush()?;
 
         let mut input = String::new();
