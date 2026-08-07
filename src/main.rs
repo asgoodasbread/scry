@@ -5,6 +5,7 @@ mod config;
 mod output;
 mod prompt;
 mod providers;
+mod ocr;
 
 use providers::Provider;
 
